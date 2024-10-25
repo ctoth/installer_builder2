@@ -20,6 +20,7 @@ class InstallerBuilder:
     author: str = field(default='', converter=str)
     run_at_startup: bool = field(default=False)
     console: bool = field(default=False) # For compiling your app in console/command line mode
+    enable_deployment: bool = field(default=False) # Enable deployment mode for better compatibility
     url: str = field(default='', converter=str)
     company_name: str = field(default='')
     include_modules: list = field(default=Factory(list), converter=list)
@@ -34,7 +35,9 @@ class InstallerBuilder:
 
     def compile_distribution(self):
         run_nuitka(self.main_module, self.dist_path, app_name=self.app_name, app_version=self.version, company_name=self.company_name,
-                   include_modules=self.include_modules, include_data_files=self.data_files, include_data_dirs=self.data_directories, packages_to_include=self.include_packages, data_file_packages=self.data_file_packages, ignore_imports=self.ignore_imports, console=self.console)
+                   include_modules=self.include_modules, include_data_files=self.data_files, include_data_dirs=self.data_directories, 
+                   packages_to_include=self.include_packages, data_file_packages=self.data_file_packages, ignore_imports=self.ignore_imports, 
+                   console=self.console, enable_deployment=self.enable_deployment)
 
     def create_installer(self):
         import innosetup_builder
@@ -104,7 +107,9 @@ class InstallerBuilder:
         self.create_update_zip()
 
 
-def run_nuitka(main_module, output_path=pathlib.Path('dist'), include_modules=None, packages_to_include=None, console=False, onefile=False, include_data_files=None, include_data_dirs=None, app_name="", company_name="", app_version="", numpy=False, data_file_packages=None, ignore_imports=None):
+def run_nuitka(main_module, output_path=pathlib.Path('dist'), include_modules=None, packages_to_include=None, console=False, onefile=False, 
+               include_data_files=None, include_data_dirs=None, app_name="", company_name="", app_version="", numpy=False, 
+               data_file_packages=None, ignore_imports=None, enable_deployment=False):
     if include_modules is None:
         include_modules = []
     include_modules = ['--include-module=' +
@@ -131,6 +136,8 @@ def run_nuitka(main_module, output_path=pathlib.Path('dist'), include_modules=No
                       ignore for ignore in ignore_imports]
     extra_options = ['--assume-yes-for-downloads',
                      '--output-dir=' + str(output_path)]
+    if enable_deployment:
+        extra_options.append('--deployment')
     if onefile:
         extra_options.append('--onefile')
     if not console:
