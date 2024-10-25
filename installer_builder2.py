@@ -4,6 +4,7 @@ import platform
 import subprocess
 import sys
 import zipfile
+from typing import Union
 
 from attr import Factory, define, field
 
@@ -150,15 +151,42 @@ def run_nuitka(main_module, output_path=pathlib.Path('dist'), include_modules=No
         extra_options.append('--macos-app-version=' + app_version)
     if numpy:
         extra_options.append('--enable-plugin=numpy')
-    command = [sys  .executable, '-m', 'nuitka', '--standalone', *include_modules,
+    command = [sys.executable, '-m', 'nuitka', '--standalone', *include_modules,
                *include_packages, *include_data_files, *include_data_dirs, *data_file_packages, *ignore_imports, *extra_options, main_module]
     subprocess.check_call(command)
 
 
+def format_data_file(item: Union[str, pathlib.Path]) -> str:
+    """Format a single data file/directory for Nuitka inclusion.
+    
+    Args:
+        item: Path to file or directory, or existing formatted string
+        
+    Returns:
+        Properly formatted Nuitka data file string
+    """
+    item = str(item)
+    
+    # Already formatted
+    if '=' in item:
+        return item
+        
+    abs_path = os.path.abspath(item)
+    
+    # Pattern matching (e.g., *.txt)
+    if '*' in item:
+        dir_path = os.path.dirname(abs_path)
+        pattern = os.path.basename(item)
+        target_dir = os.path.dirname(item)
+        return f"{dir_path}/{pattern}={target_dir}/"
+        
+    # Directory
+    if item.endswith('/') or (os.path.exists(item) and os.path.isdir(item)):
+        return f"{abs_path}={item}=**/*"
+        
+    # Single file
+    return f"{abs_path}={os.path.basename(item)}"
+
 def _format_nuitka_datafiles(items):
-    # datafiles look like path/to/file=path/to/target and we will only get the part before the =
-    # copy the tree to the corresponding path
-    for item in items:
-        if '=-' in item:
-            yield item
-        yield item + '=' + item
+    """Convert a list of data file specifications into Nuitka format."""
+    return [format_data_file(item) for item in items]
