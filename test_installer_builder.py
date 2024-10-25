@@ -82,8 +82,12 @@ class TestDataFileFormatter(TestCase):
 
     def test_error_handling(self):
         from installer_builder2 import InstallerBuilder
+        import os
         
-        # Test missing main module
-        builder = InstallerBuilder("TestApp")
+        # Create test file that will cause compilation error
+        test_file = "test_main.py"
+        
+        # Test with invalid module import
+        builder = InstallerBuilder("TestApp", main_module=test_file)
         with self.assertRaises(subprocess.CalledProcessError):
             builder.compile_distribution()
