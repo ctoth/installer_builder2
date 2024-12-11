@@ -4,6 +4,7 @@ import platform
 import subprocess
 import sys
 import zipfile
+from typing import Union
 
 from attr import Factory, define, field
 
@@ -19,6 +20,7 @@ class InstallerBuilder:
     author: str = field(default='', converter=str)
     run_at_startup: bool = field(default=False)
     console: bool = field(default=False) # For compiling your app in console/command line mode
+    enable_deployment: bool = field(default=False) # Enable deployment mode for better compatibility
     url: str = field(default='', converter=str)
     company_name: str = field(default='')
     include_modules: list = field(default=Factory(list), converter=list)
@@ -33,7 +35,9 @@ class InstallerBuilder:
 
     def compile_distribution(self):
         run_nuitka(self.main_module, self.dist_path, app_name=self.app_name, app_version=self.version, company_name=self.company_name,
-                   include_modules=self.include_modules, include_data_files=self.data_files, include_data_dirs=self.data_directories, packages_to_include=self.include_packages, data_file_packages=self.data_file_packages, ignore_imports=self.ignore_imports, console=self.console)
+                   include_modules=self.include_modules, include_data_files=self.data_files, include_data_dirs=self.data_directories, 
+                   packages_to_include=self.include_packages, data_file_packages=self.data_file_packages, ignore_imports=self.ignore_imports, 
+                   console=self.console, enable_deployment=self.enable_deployment)
 
     def create_installer(self):
         import innosetup_builder
@@ -103,7 +107,9 @@ class InstallerBuilder:
         self.create_update_zip()
 
 
-def run_nuitka(main_module, output_path=pathlib.Path('dist'), include_modules=None, packages_to_include=None, console=False, onefile=False, include_data_files=None, include_data_dirs=None, app_name="", company_name="", app_version="", numpy=False, data_file_packages=None, ignore_imports=None):
+def run_nuitka(main_module, output_path=pathlib.Path('dist'), include_modules=None, packages_to_include=None, console=False, onefile=False, 
+               include_data_files=None, include_data_dirs=None, app_name="", company_name="", app_version="", numpy=False, 
+               data_file_packages=None, ignore_imports=None, enable_deployment=False):
     if include_modules is None:
         include_modules = []
     include_modules = ['--include-module=' +
@@ -130,6 +136,8 @@ def run_nuitka(main_module, output_path=pathlib.Path('dist'), include_modules=No
                       ignore for ignore in ignore_imports]
     extra_options = ['--assume-yes-for-downloads',
                      '--output-dir=' + str(output_path)]
+    if enable_deployment:
+        extra_options.append('--deployment')
     if onefile:
         extra_options.append('--onefile')
     if not console:
@@ -150,15 +158,117 @@ def run_nuitka(main_module, output_path=pathlib.Path('dist'), include_modules=No
         extra_options.append('--macos-app-version=' + app_version)
     if numpy:
         extra_options.append('--enable-plugin=numpy')
-    command = [sys  .executable, '-m', 'nuitka', '--standalone', *include_modules,
+    command = [sys.executable, '-m', 'nuitka', '--standalone', *include_modules,
                *include_packages, *include_data_files, *include_data_dirs, *data_file_packages, *ignore_imports, *extra_options, main_module]
     subprocess.check_call(command)
 
 
+def format_data_file(item: Union[str, pathlib.Path]) -> str:
+    """Format a single data file/directory for Nuitka inclusion.
+    
+    Args:
+        item: Path to file or directory, or existing formatted string
+        
+    Returns:
+        Properly formatted Nuitka data file string
+    """
+    item = str(item)
+    
+    # Already formatted
+    if '=' in item:
+        return item
+        
+    abs_path = os.path.abspath(item)
+    
+    # Pattern matching (e.g., *.txt)
+    if '*' in item:
+        dir_path = os.path.dirname(abs_path)
+        pattern = os.path.basename(item)
+        target_dir = os.path.dirname(item)
+        return f"{dir_path}/{pattern}={target_dir}/"
+        
+    # Directory
+    if item.endswith('/') or (os.path.exists(item) and os.path.isdir(item)):
+        # For directories, Nuitka expects: source_dir=target_dir
+        return f"{abs_path}={item}"
+        
+    # Single file
+    return f"{abs_path}={os.path.basename(item)}"
+
 def _format_nuitka_datafiles(items):
-    # datafiles look like path/to/file=path/to/target and we will only get the part before the =
-    # copy the tree to the corresponding path
-    for item in items:
-        if '=-' in item:
-            yield item
-        yield item + '=' + item
+    """Convert a list of data file specifications into Nuitka format."""
+    return [format_data_file(item) for item in items]
+
+from unittest import TestCase
+
+class TestDataFileFormatter(TestCase):
+    def test_format_data_file(self):
+        # Test single file
+        self.assertEqual(
+            format_data_file("file.txt"),
+            f"{os.path.abspath('file.txt')}=file.txt"
+        )
+        
+        # Test directory
+        self.assertEqual(
+            format_data_file("testdir/"),
+            f"{os.path.abspath('testdir')}=testdir/=**/*"
+        )
+        
+        # Test pattern
+        self.assertEqual(
+            format_data_file("dir/*.txt"),
+            f"{os.path.abspath('dir')}/*.txt=dir/"
+        )
+        
+        # Test pre-formatted string
+        self.assertEqual(
+            format_data_file("source=target"),
+            "source=target"
+        )
+
+    def test_deployment_flag(self):
+        # Create builder with deployment enabled
+        builder = InstallerBuilder("TestApp", enable_deployment=True)
+        self.assertTrue(builder.enable_deployment)
+        
+        # Create builder with deployment disabled (default)
+        builder = InstallerBuilder("TestApp")
+        self.assertFalse(builder.enable_deployment)
+
+    def test_installer_builder_config(self):
+        
+        builder = InstallerBuilder(
+            "TestApp",
+            version="1.2.3",
+            company_name="Test Company",
+            console=True
+        )
+        
+        self.assertEqual(builder.app_name, "TestApp")
+        self.assertEqual(builder.version, "1.2.3")
+        self.assertEqual(builder.company_name, "Test Company")
+        self.assertTrue(builder.console)
+
+    def test_data_file_handling(self):
+        
+        builder = InstallerBuilder("TestApp")
+        builder.data_files = ["test.txt", "data/*.dat"]
+        builder.data_directories = ["assets/"]
+        
+        # Test that data files are properly formatted
+        formatted_files = _format_nuitka_datafiles(builder.data_files)
+        self.assertTrue(any("test.txt" in f for f in formatted_files))
+        self.assertTrue(any("*.dat" in f for f in formatted_files))
+
+    def test_platform_specific(self):
+       
+        builder = InstallerBuilder("TestApp")
+        
+        if platform.system() == "Windows":
+            # Test Windows-specific paths
+            self.assertTrue(str(builder.dist_path).endswith('dist'))
+        elif platform.system() == "Darwin":
+            # Test macOS-specific paths
+            self.assertTrue(str(builder.dist_path).endswith('dist'))
+
