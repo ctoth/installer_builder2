@@ -189,7 +189,8 @@ def format_data_file(item: Union[str, pathlib.Path]) -> str:
         
     # Directory
     if item.endswith('/') or (os.path.exists(item) and os.path.isdir(item)):
-        return f"{abs_path}={item}=**/*"
+        # For directories, Nuitka expects: source_dir=target_dir
+        return f"{abs_path}={item}"
         
     # Single file
     return f"{abs_path}={os.path.basename(item)}"
